@@ -1,0 +1,50 @@
+orbs:
+  aws-ecr: circleci/aws-ecr@6.7.1
+  node: circleci/node@1.1.6
+version: 2.1
+jobs:
+  semantic_and_sonar_verify:
+    docker:
+      - image: 'circleci/node:latest'
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: npm install
+#      - run:
+#          name: commit lint
+#          command: yarn commitlint-circle
+      - run:
+          name:  release
+          command: |
+             npm run semantic-release || true
+#     - run: |
+#           wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.2.0.1873-linux.zip
+#           unzip sonar-scanner-cli-4.2.0.1873-linux.zip
+#      - run:
+#            name: Run Sonarqube scanner
+#            command: |
+#                  eval ./sonar-scanner-4.2.0.1873-linux/bin/sonar-scanner  -Dsonar.projectKey=mynodeproj -Dsonar.sources=.  -Dsonar.host.url=http://34.82.15.170 -Dsonar.login=0a0eca3f1ec3dea8fbc7463036d8e7061cb956f6
+
+  build-and-test:
+    executor:
+      name: aws-ecr/default
+    steps:
+      - checkout
+      - run: |
+              echo Logging in to Amazon ECR...
+              $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+      - run: |
+             PACKAGE_VERSION=$(node -p "require('./package.json').version")
+             echo Building the Docker image.
+             docker build  -t $IMAGE_REPO_NAME:$PACKAGE_VERSION . --file Dockerfile
+             docker tag $IMAGE_REPO_NAME:$PACKAGE_VERSION $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$PACKAGE_VERSION
+             echo Pushing the Docker image to ECR.
+             docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$PACKAGE_VERSION
+workflows:
+    build-and-check:
+      jobs:
+        - semantic_and_sonar_verify
+        - build-and-test:
+            requires:
+               - semantic_and_sonar_verify
